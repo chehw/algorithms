@@ -1,0 +1,39 @@
+# ignore all files without extension name
+*
+
+# white list
+!src
+!src/base
+!include
+!tests
+!demo
+!samples
+!doc
+!*/*.md
+!*/*.c
+!*/*.h
+!src/base/*.h
+!src/base/*.c
+!tests/make.sh
+!README
+!README.md
+!LICENSE
+!INSTALL
+!Makefile
+!.gitignore
+!.editorconfig
+! *.*
+
+# ignore private files
+.private
+.private/*
+
+# ignore object files
+*.so
+*.so.*
+*.a
+*.a*
+
+
+
+
