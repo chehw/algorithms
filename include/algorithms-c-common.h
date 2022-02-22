@@ -25,6 +25,8 @@ struct clib_pointer_array
 int clib_pointer_array_resize(struct clib_pointer_array * array, size_t new_size);
 struct clib_pointer_array * clib_pointer_array_init(struct clib_pointer_array * array, size_t size);
 void clib_pointer_array_cleanup(struct clib_pointer_array * array, void (*free_data)(void *));
+void clib_pointer_array_clear(struct clib_pointer_array * array, void (*free_data)(void *));
+int clib_pointer_array_set_length(struct clib_pointer_array * array, size_t new_length);
 
 
 struct clib_circular_array

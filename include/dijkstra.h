@@ -26,6 +26,11 @@ struct dijkstra_sparse_edge
 	int64_t weight;
 	uint32_t src_id;	// src_vertex.id
 	uint32_t dst_id;	// dst_vertex.id
+	
+	void * user_data;	// use to calc custom weigth, 
+						// eg. struct routing_fees {int64_t rate, int64_t bias} fees = { ppm, base };
+						// user_data := &fees;
+						// calc_weight(amount, user_data) ==>  weight = amount * fees.rate + fees.bias;
 };
 
 struct dijkstra_edges
@@ -43,10 +48,10 @@ struct dijkstra_edges
 	};
 	
 	// add or update an edge
-	int (* update)(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id, int64_t weight);
+	struct dijkstra_sparse_edge * (* update)(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id, int64_t weight);
 	
 	// remove an edge
-	int (* remove)(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id);
+	struct dijkstra_sparse_edge * (* remove)(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id);
 	
 	// get weight between two vertices
 	int64_t (* get_weight)(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id);
@@ -74,11 +79,14 @@ struct dijkstra_vertex_status
 {
 	const struct dijkstra_vertex * vertex;
 	int64_t min_weight;
+	int64_t depth;
 	
 	uint32_t id;
 	int visited;
 	int is_processing; // in working queue
 	const struct dijkstra_vertex_status * parent;
+	
+	int64_t amount; // custom data for calc weights
 };
 void dijkstra_vertex_status_dump(const struct dijkstra_vertex_status * status);
 
@@ -91,7 +99,15 @@ struct dijkstra_context
 	ssize_t (*shortest_path)(
 		struct dijkstra_context * dijkstra, 
 		uint32_t src_id, uint32_t dst_id,
-		struct clib_slist ** p_first_candidates);
+		struct clib_pointer_array *first_candidates);
+	
+	
+	int64_t amount;
+	// custom callback to calc weight
+	int64_t (* calc_weight)(int64_t amount, void * user_data);
+	
+	// custom callback to calc amount
+	int64_t (* calc_amount)(int64_t amount, void * user_data);
 };
 struct dijkstra_context * dijkstra_context_init(
 	struct dijkstra_context * dijkstra, 

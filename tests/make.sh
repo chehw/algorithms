@@ -12,7 +12,7 @@ LINKER="gcc -std=gnu99 -g ${DEBUG} -Wall -Iinclude -Iutils -Itests -D_DEFAULT_SO
 
 
 case "${target}" in 
-	dijkstra-shortest-path)
+	dijkstra-shortest-path|dijkstra)
 		echo "build $target ..."
 		${LINKER} -DTEST_DIJKSTRA_SHORTEST_PATH -DALGORITHMS_C_STAND_ALONE \
 			-o tests/${target} \
@@ -22,6 +22,14 @@ case "${target}" in
 	common|clib-stack|clib-slist|clib-*)
 		${LINKER} -DTEST_ALGORITHMS_C_COMMON -DALGORITHMS_C_STAND_ALONE \
 			-o tests/test_common src/common.c src/base/*.c
+		;;
+		
+	samples-dijkstra)
+		${LINKER} \
+			-o tests/samples-dijkstra \
+			samples/samples-dijkstra.c \
+			src/dijkstra-shortest-path.c src/base/*.c \
+			-lm
 		;;
 	*)
 		exit 1

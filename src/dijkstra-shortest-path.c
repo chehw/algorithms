@@ -145,13 +145,15 @@ static ssize_t get_vertex_sparse_edges(struct dijkstra_edges * edges, uint32_t v
  *     0 on success, -1 on failure.
  * 
 **/
-static int dijkstra_edges_update(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id, int64_t weight)
+static struct dijkstra_sparse_edge * dijkstra_edges_update(struct dijkstra_edges * edges, uint32_t src_id, uint32_t dst_id, int64_t weight)
 {
 	if(!edges->is_sparse_matrix) 
 	{
 		assert(src_id < edges->num_vertices);
 		assert(dst_id < edges->num_vertices);
-		return edges->weights[src_id * edges->num_vertices + dst_id];
+		edges->weights[src_id * edges->num_vertices + dst_id] = weight;
+		
+		return NULL;
 	}
 	
 	struct dijkstra_sparse_edge * edge = calloc(1, sizeof(*edge));
@@ -175,7 +177,7 @@ static int dijkstra_edges_update(struct dijkstra_edges * edges, uint32_t src_id,
 	vertex_edges_array->data_ptrs[src_id] = sparse_edges_list_add(list, edge);
 	if(vertex_edges_array->length <= src_id) vertex_edges_array->length = src_id + 1;
 	
-	return 0;
+	return edge;
 }
 
 /**
@@ -188,27 +190,25 @@ static int dijkstra_edges_update(struct dijkstra_edges * edges, uint32_t src_id,
  *     0 on success, -1 on failure.
  * 
 **/
-static int dijkstra_edges_remove(struct dijkstra_edges * edges,  uint32_t src_id, uint32_t dst_id)
+static struct dijkstra_sparse_edge * dijkstra_edges_remove(struct dijkstra_edges * edges,  uint32_t src_id, uint32_t dst_id)
 {
 	if(!edges->is_sparse_matrix) {
 		assert(src_id < edges->num_vertices);
 		assert(dst_id < edges->num_vertices);
 		edges->weights[src_id * edges->num_vertices + dst_id] = -1;
-		return 0;
+		return NULL;
 	}
 	struct dijkstra_sparse_edge pattern = {
 		.src_id = src_id,
 		.dst_id = dst_id
 	};
 	struct dijkstra_sparse_edge ** p_node = tfind(&pattern, &edges->search_root, dijkstra_sparse_edge_compare);
-	if(NULL == p_node) return -1;
+	if(NULL == p_node) return NULL;
 	
 	struct dijkstra_sparse_edge * edge = *p_node;
 	tdelete(&pattern, &edges->search_root, dijkstra_sparse_edge_compare);
-	
 	sparse_edges_list_remove(edges->vertex_edges_array->data_ptrs[src_id], edge);
-	free(edge);
-	return 0;
+	return edge;
 }
 
 static int64_t dijkstra_edges_get_weight(struct dijkstra_edges * edges,  uint32_t src_id, uint32_t dst_id)
@@ -288,10 +288,6 @@ void dijkstra_edges_cleanup(struct dijkstra_edges * edges)
 void dijkstra_clear_status_array(struct dijkstra_context * dijkstra)
 {
 	assert(dijkstra);
-	//~ if(dijkstra->vertices_search_root) {
-		//~ tdestroy(dijkstra->vertices_search_root, no_free);
-		//~ dijkstra->vertices_search_root = NULL;
-	//~ }
 	if(dijkstra->status_array) {
 		free(dijkstra->status_array);
 		dijkstra->status_array = NULL;
@@ -300,16 +296,19 @@ void dijkstra_clear_status_array(struct dijkstra_context * dijkstra)
 
 void dijkstra_vertex_status_dump(const struct dijkstra_vertex_status * status)
 {
-	assert(status && status->vertex);
-	printf("vertex.id=%u, min_weight=%ld, visited=%d, is_processing=%d, parent_id=%d\n",
-		status->vertex->id, status->min_weight, status->visited, status->is_processing,
+	assert(status);
+	printf("vertex.id=%u, min_weight=%ld, amount=%ld, "
+		"visited=%d, is_processing=%d, depth=%d, parent_id=%d\n",
+		status->id, (long)status->min_weight, (long)status->amount,
+		status->visited, status->is_processing,
+		(int)status->depth,
 		status->parent?(int)status->parent->id:-1);
 }
 
 ssize_t dijkstra_shortest_path(
 	struct dijkstra_context * dijkstra, 
 	uint32_t src_id, uint32_t dst_id,
-	struct clib_slist ** p_first_candidates)
+	struct clib_pointer_array * candidates)
 {
 	assert(dijkstra && dijkstra->graph);
 	assert(src_id < dijkstra->graph->num_vertices);
@@ -329,15 +328,17 @@ ssize_t dijkstra_shortest_path(
 		status->vertex = &graph->vertices[i];
 		status->id = i;
 		status->min_weight = DIJKSTRA_WEIGHT_UNSET;
+		status->amount = INT64_MAX;
 		
 		status->visited = 0;
 		status->is_processing = 0;
 	}
-	
 	dijkstra->status_array = status_array;
 	
 	// step 1. push vertices[src_id] to working queue
 	struct dijkstra_vertex_status * vertex = &status_array[src_id];
+	vertex->amount = dijkstra->amount;
+	
 	struct dijkstra_vertex_status * dst_status = &status_array[dst_id];
 
 	vertex->min_weight = 0;
@@ -348,19 +349,23 @@ ssize_t dijkstra_shortest_path(
 	struct dijkstra_vertex_status * current = NULL;
 	while((current = queue->leave(queue)))
 	{
-		if(current->id == dst_id) {	// found a path
-			found = 1;
+		//~ if(current->id == dst_id) {	// found a path
+			//~ found = 1;
+			//~ continue;
+		//~ }
+		debug_printf("====  current: "); dijkstra_vertex_status_dump(current);
+		if(found && current->min_weight > dst_status->min_weight) {
+			debug_printf("  --> skipped [%u], min_weight=%ld\n", current->id, (long)current->min_weight);
 			continue;
 		}
-		if(found && current->min_weight > dst_status->min_weight) continue;
 		
 		// step 2. get all edges belong to the vertex
 		struct clib_slist * vertex_edges = NULL;
 		ssize_t count = edges->get_vertex_sparse_edges(edges, current->id, (const struct clib_slist **)&vertex_edges);
 		if(count <= 0) continue;
 		
-		debug_printf("==== v[%u], edges-count=%d\n", current->id, (int)count);
-		debug_printf("  current: "); dijkstra_vertex_status_dump(current);
+		debug_printf("  -- edges-count=%d\n", (int)count);
+		
 		
 		// step 3. update min_weight
 		clib_list_iterator_t iter;
@@ -371,24 +376,39 @@ ssize_t dijkstra_shortest_path(
 			assert(edge);
 			assert(edge->dst_id < edges->num_vertices);
 			vertex = &status_array[edge->dst_id];
+			
+			if(vertex->id == dst_id) found = 1;
+			
 			if(vertex->visited) {
 				ok = clib_slist_iter_next(vertex_edges, &iter);
 				continue;
 			}
-		
-			int64_t weight = current->min_weight + edge->weight;
+			
+			int64_t weight = INT64_MAX;
+			
+			
+			if(dijkstra->calc_weight) {
+				weight = current->min_weight + dijkstra->calc_weight(current->amount, edge->user_data);
+			}else {
+				weight = current->min_weight + edge->weight;
+			}
 			if(weight < vertex->min_weight) {
 				vertex->min_weight = weight;
 				vertex->parent = current;
+				vertex->depth = current->depth + 1;
+				
+				if(dijkstra->calc_amount) vertex->amount = dijkstra->calc_amount(current->amount, edge->user_data);
 			}
-			debug_printf("  next hop; "); dijkstra_vertex_status_dump(vertex);
+			debug_printf("    -- next hop: "); dijkstra_vertex_status_dump(vertex);
 			
 			// step 4. push unprocessed vertex into queue
 			if(!vertex->is_processing) {
 				vertex->is_processing = 1;
-				debug_printf("\e[32m     push [%d]\e[39m\n", (int)vertex->vertex->id);
+				debug_printf("\e[32m         ==> push [%d]\e[39m\n", (int)vertex->id);
 				queue->enter(queue, vertex);
 			}
+			
+			
 			ok = clib_slist_iter_next(vertex_edges, &iter);
 		}
 		current->visited = 1;
@@ -397,24 +417,26 @@ ssize_t dijkstra_shortest_path(
 	clib_queue_clear(queue, NULL);
 	
 	// get path
-	if(found && p_first_candidates)
+	if(found && candidates)
 	{
-		struct clib_slist * candidates_list = calloc(1, sizeof(*candidates_list));
-		assert(candidates_list);
-		
 		struct dijkstra_vertex_status * vertex = dst_status;
+		assert(dst_status->depth >= 0);
+		clib_pointer_array_clear(candidates, NULL);
+		clib_pointer_array_set_length(candidates, dst_status->depth + 1);
+		
 		do {
 			debug_printf("[%d] <== ", (int)vertex->id);
-			clib_slist_push(candidates_list, vertex);
+			assert(vertex->depth >= 0 && vertex->parent->depth == (vertex->depth - 1));
+			
+			candidates->data_ptrs[vertex->depth] = vertex;
 			vertex = (struct dijkstra_vertex_status *)vertex->parent;
 		}while(vertex && vertex->id != src_id);
 		
+		assert(vertex->id == src_id);
 		vertex = &status_array[src_id];
-		clib_slist_push(candidates_list, vertex);
 		debug_printf("[%d]\n", (int)vertex->id);
 		
-		clib_slist_reverse(candidates_list);
-		*p_first_candidates = candidates_list;
+		candidates->data_ptrs[0] = vertex;
 	}
 	return found?dst_status->min_weight:-1;
 }
@@ -428,7 +450,8 @@ struct dijkstra_context * dijkstra_context_init(struct dijkstra_context * dijkst
 	void * user_data)
 {
 	assert(graph);
-	assert(graph->vertices && graph->num_vertices > 0);
+	//~ assert(graph->vertices);
+	assert(graph->num_vertices > 0);
 	assert(graph->edges);
 	
 	if(NULL == dijkstra) dijkstra = calloc(1, sizeof(*dijkstra));
@@ -556,27 +579,43 @@ int main(int argc, char **argv)
 	memset(dijkstra, 0, sizeof(dijkstra));
 	dijkstra_context_init(dijkstra, graph, NULL);
 	
-	struct clib_slist * first_candidates = NULL;
-	int64_t min_weight = dijkstra_shortest_path(dijkstra, src_id, dst_id, &first_candidates);
+	struct clib_pointer_array first_candidates[1];
+	memset(first_candidates, 0, sizeof(first_candidates));
+	
+	int64_t min_weight = dijkstra_shortest_path(dijkstra, src_id, dst_id, first_candidates);
 	printf("min_weight: %ld\n", (long)min_weight);
 	
 	// print path
-	if(first_candidates && first_candidates->length > 0) {
-		printf("path: ");
-		clib_list_iterator_t iter;
-		memset(&iter, 0, sizeof(iter));
-		while(clib_slist_iter_next(first_candidates, &iter))
-		{
-			struct dijkstra_vertex_status * status = clib_list_iterator_get_data(iter);
-			assert(status);
-			printf("[%d](%d)", (int)status->id, (int)status->min_weight);
-			if(iter.current != first_candidates->tail) printf(" ==> ");
-		}
-		printf("\n");
-		clib_slist_clear(first_candidates, NULL);
-		free(first_candidates);
-	}
 	
+	printf("==== path: hops=%d ====\n", (int)(first_candidates->length - 1));
+	for(size_t i = 0; i < first_candidates->length; ++i) {
+		const struct dijkstra_vertex_status * status = first_candidates->data_ptrs[i];
+		assert(status);
+		if(i == 0) printf("\e[34mvertices[%d](min_weight=%d)\e[39m", (int)status->id, (int)status->min_weight);
+		else printf("vertices[%d](min_weight=%d)", (int)status->id, (int)status->min_weight);
+		if(i < (first_candidates->length - 1)) printf(" ==> ");
+	}
+	printf("\n");
+	
+	clib_pointer_array_clear(first_candidates, NULL);
+	
+	/// reuse dijkstra to check memory leak
+	min_weight = dijkstra_shortest_path(dijkstra, src_id, dst_id, first_candidates);
+	printf("min_weight: %ld\n", (long)min_weight);
+	
+	// print path
+	
+	printf("==== path: hops=%d ====\n", (int)(first_candidates->length - 1));
+	for(size_t i = 0; i < first_candidates->length; ++i) {
+		const struct dijkstra_vertex_status * status = first_candidates->data_ptrs[i];
+		assert(status);
+		if(i == 0) printf("\e[34mvertices[%d](min_weight=%d)\e[39m", (int)status->id, (int)status->min_weight);
+		else printf("vertices[%d](min_weight=%d)", (int)status->id, (int)status->min_weight);
+		if(i < (first_candidates->length - 1)) printf(" ==> ");
+	}
+	printf("\n");
+	
+	clib_pointer_array_cleanup(first_candidates, NULL);	
 	dijkstra_edges_cleanup(edges);
 	dijkstra_context_cleanup(dijkstra);
 	return 0;

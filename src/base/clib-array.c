@@ -48,6 +48,13 @@ int clib_pointer_array_resize(struct clib_pointer_array * array, size_t new_size
 	return 0;
 }
 
+int clib_pointer_array_set_length(struct clib_pointer_array * array, size_t new_length)
+{
+	if(clib_pointer_array_resize(array, new_length)) return -1;
+	array->length = new_length;
+	return 0;
+}
+
 struct clib_pointer_array * clib_pointer_array_init(struct clib_pointer_array * array, size_t size)
 {
 	if(NULL == array) array = calloc(1, sizeof(*array));
@@ -57,17 +64,28 @@ struct clib_pointer_array * clib_pointer_array_init(struct clib_pointer_array * 
 	return array;
 }
 
-void clib_pointer_array_cleanup(struct clib_pointer_array * array, void (*free_data)(void *))
+void clib_pointer_array_clear(struct clib_pointer_array * array, void (*free_data)(void *))
 {
 	if(NULL == array || NULL == array->data_ptrs) return;
 	if(free_data) {
 		for(size_t i = 0; i < array->length; ++i) {
 			void * data = array->data_ptrs[i];
 			free_data(data);
+			array->data_ptrs[i] = NULL;
 		}
 	}
-	free(array->data_ptrs);
-	array->data_ptrs = NULL;
+	return;
+}
+
+void clib_pointer_array_cleanup(struct clib_pointer_array * array, void (*free_data)(void *))
+{
+	if(NULL == array) return;
+	clib_pointer_array_clear(array, free_data);
+	
+	if(array->data_ptrs) {
+		free(array->data_ptrs);
+		array->data_ptrs = NULL;
+	}
 	
 	array->max_size = 0;
 	array->length = 0;

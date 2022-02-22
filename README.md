@@ -6,8 +6,11 @@
 
 
 ## build
+
    make 
+   
    make tests
+   
    make demo
    
 
