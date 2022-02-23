@@ -1,6 +1,6 @@
 TARGETS=libalgorithms-c.so libalgorithms-c.a
 
-VERSION ?= 0.1.0
+VERSION ?= 0.2.0
 DEBUG ?=1
 OPTIMIZE ?= -O2
 CC=gcc -std=gnu99

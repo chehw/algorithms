@@ -79,12 +79,13 @@ struct dijkstra_vertex_status
 {
 	const struct dijkstra_vertex * vertex;
 	int64_t min_weight;
-	int64_t depth;
 	
 	uint32_t id;
 	int visited;
 	int is_processing; // in working queue
-	const struct dijkstra_vertex_status * parent;
+	
+	int depth;
+	struct clib_pointer_array parent_candidates[1];
 	
 	int64_t amount; // custom data for calc weights
 };

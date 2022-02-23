@@ -289,6 +289,11 @@ void dijkstra_clear_status_array(struct dijkstra_context * dijkstra)
 {
 	assert(dijkstra);
 	if(dijkstra->status_array) {
+		assert(dijkstra->graph != NULL);
+		for(size_t i = 0; i < dijkstra->graph->num_vertices; ++i) {
+			struct dijkstra_vertex_status * status = &dijkstra->status_array[i];
+			clib_pointer_array_cleanup(status->parent_candidates, NULL);
+		}
 		free(dijkstra->status_array);
 		dijkstra->status_array = NULL;
 	}
@@ -297,12 +302,23 @@ void dijkstra_clear_status_array(struct dijkstra_context * dijkstra)
 void dijkstra_vertex_status_dump(const struct dijkstra_vertex_status * status)
 {
 	assert(status);
+	const struct dijkstra_vertex_status * parent = NULL;
+	if(status->parent_candidates->length > 0) parent = status->parent_candidates->data_ptrs[0];
+	
 	printf("vertex.id=%u, min_weight=%ld, amount=%ld, "
 		"visited=%d, is_processing=%d, depth=%d, parent_id=%d\n",
 		status->id, (long)status->min_weight, (long)status->amount,
 		status->visited, status->is_processing,
 		(int)status->depth,
-		status->parent?(int)status->parent->id:-1);
+		parent?(int)parent->id:-1);
+}
+
+static int vertex_status_compare_by_depth(const void * _a, const void * _b)
+{
+	const struct dijkstra_vertex_status *a = *(const struct dijkstra_vertex_status **)_a;
+	const struct dijkstra_vertex_status *b = *(const struct dijkstra_vertex_status **)_a;
+	assert(a && b);
+	return (a->depth - b->depth);
 }
 
 ssize_t dijkstra_shortest_path(
@@ -332,6 +348,8 @@ ssize_t dijkstra_shortest_path(
 		
 		status->visited = 0;
 		status->is_processing = 0;
+		
+		clib_pointer_array_init(status->parent_candidates, 0);
 	}
 	dijkstra->status_array = status_array;
 	
@@ -392,11 +410,19 @@ ssize_t dijkstra_shortest_path(
 			}else {
 				weight = current->min_weight + edge->weight;
 			}
-			if(weight < vertex->min_weight) {
+			if(weight <= vertex->min_weight) {
+				
 				vertex->min_weight = weight;
-				vertex->parent = current;
 				vertex->depth = current->depth + 1;
 				
+				struct clib_pointer_array * parent_candidates = vertex->parent_candidates;
+				
+				if(weight < vertex->min_weight) {
+					clib_pointer_array_set_length(parent_candidates, 1);
+				}else {
+					clib_pointer_array_set_length(parent_candidates, parent_candidates->length + 1);
+				}
+				parent_candidates->data_ptrs[parent_candidates->length - 1] = current;
 				if(dijkstra->calc_amount) vertex->amount = dijkstra->calc_amount(current->amount, edge->user_data);
 			}
 			debug_printf("    -- next hop: "); dijkstra_vertex_status_dump(vertex);
@@ -422,20 +448,32 @@ ssize_t dijkstra_shortest_path(
 		struct dijkstra_vertex_status * vertex = dst_status;
 		assert(dst_status->depth >= 0);
 		clib_pointer_array_clear(candidates, NULL);
-		clib_pointer_array_set_length(candidates, dst_status->depth + 1);
+		
+		size_t length = dst_status->depth + 1;
+		clib_pointer_array_set_length(candidates, length);
+		
 		
 		do {
 			debug_printf("[%d] <== ", (int)vertex->id);
-			assert(vertex->depth >= 0 && vertex->parent->depth == (vertex->depth - 1));
+			assert(vertex->depth >= 0 && vertex->depth <= length);
 			
 			candidates->data_ptrs[vertex->depth] = vertex;
-			vertex = (struct dijkstra_vertex_status *)vertex->parent;
+			
+			struct clib_pointer_array * parent_candidates = vertex->parent_candidates;
+			assert(parent_candidates->length > 0);
+			
+			// sort by depth
+			qsort(parent_candidates->data_ptrs, 
+				parent_candidates->length, sizeof(struct dijkstra_vertex_status *), 
+				vertex_status_compare_by_depth);
+			struct dijkstra_vertex_status * parent = parent_candidates->data_ptrs[0];
+			assert(parent->depth == (vertex->depth - 1));
+			vertex = parent;
 		}while(vertex && vertex->id != src_id);
 		
 		assert(vertex->id == src_id);
 		vertex = &status_array[src_id];
 		debug_printf("[%d]\n", (int)vertex->id);
-		
 		candidates->data_ptrs[0] = vertex;
 	}
 	return found?dst_status->min_weight:-1;
