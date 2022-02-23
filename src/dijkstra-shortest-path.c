@@ -316,7 +316,7 @@ void dijkstra_vertex_status_dump(const struct dijkstra_vertex_status * status)
 static int vertex_status_compare_by_depth(const void * _a, const void * _b)
 {
 	const struct dijkstra_vertex_status *a = *(const struct dijkstra_vertex_status **)_a;
-	const struct dijkstra_vertex_status *b = *(const struct dijkstra_vertex_status **)_a;
+	const struct dijkstra_vertex_status *b = *(const struct dijkstra_vertex_status **)_b;
 	assert(a && b);
 	return (a->depth - b->depth);
 }
