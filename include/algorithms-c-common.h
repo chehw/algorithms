@@ -76,6 +76,7 @@ int clib_slist_reverse(struct clib_slist * list);
 void clib_slist_clear(struct clib_slist * list, void (*free_data)(void *));
 _Bool clib_slist_iter_next(struct clib_slist * list, clib_list_iterator_t * p_iter);
 _Bool clib_slist_iter_begin(struct clib_slist * list, clib_list_iterator_t * p_iter);
+void clib_slist_iter_clear(struct clib_slist * list);
 int clib_slist_push(struct clib_slist *list, void * data);
 
 struct clib_queue

@@ -13,4 +13,6 @@
    
    make demo
    
+   make samples
+   
 

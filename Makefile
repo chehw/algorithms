@@ -41,10 +41,12 @@ all: do_init $(TARGETS)
 	echo "objects: $(OBJECTS)"
 	echo "static_objects: $(OBJECTS_STATIC)"
 
-libalgorithms-c.so: $(LIB_DIR)/libalgorithms-c.so.$(VERSION)
+libalgorithms-c.so: $(LIB_DIR)/libalgorithms-c.so
+$(LIB_DIR)/libalgorithms-c.so: $(LIB_DIR)/libalgorithms-c.so.$(VERSION)
 	cd $(LIB_DIR); ln -fs libalgorithms-c.so.$(VERSION) libalgorithms-c.so
 	
-libalgorithms-c.a: $(LIB_DIR)/libalgorithms-c.a.$(VERSION)
+libalgorithms-c.a: $(LIB_DIR)/libalgorithms-c.a
+$(LIB_DIR)/libalgorithms-c.a: $(LIB_DIR)/libalgorithms-c.a.$(VERSION)
 	cd $(LIB_DIR); ln -fs libalgorithms-c.a.$(VERSION) libalgorithms-c.a
 
 $(LIB_DIR)/libalgorithms-c.so.$(VERSION): $(OBJECTS) $(BASE_OBJECTS)

@@ -335,9 +335,9 @@ ssize_t dijkstra_shortest_path(
 
 	struct clib_queue queue[1];
 	clib_queue_init(queue);
-	dijkstra_clear_status_array(dijkstra);
-
+	
 	// step 0. init status_array
+	dijkstra_clear_status_array(dijkstra);
 	struct dijkstra_vertex_status * status_array = calloc(graph->num_vertices, sizeof(*status_array));
 	for(uint32_t i = 0; i < graph->num_vertices; ++i) {
 		struct dijkstra_vertex_status *status = &status_array[i];
@@ -352,13 +352,11 @@ ssize_t dijkstra_shortest_path(
 		clib_pointer_array_init(status->parent_candidates, 0);
 	}
 	dijkstra->status_array = status_array;
+	struct dijkstra_vertex_status * dst_status = &status_array[dst_id];
 	
 	// step 1. push vertices[src_id] to working queue
 	struct dijkstra_vertex_status * vertex = &status_array[src_id];
 	vertex->amount = dijkstra->amount;
-	
-	struct dijkstra_vertex_status * dst_status = &status_array[dst_id];
-
 	vertex->min_weight = 0;
 	queue->enter(queue, vertex);
 	vertex->is_processing = 1;
@@ -367,65 +365,59 @@ ssize_t dijkstra_shortest_path(
 	struct dijkstra_vertex_status * current = NULL;
 	while((current = queue->leave(queue)))
 	{
-		//~ if(current->id == dst_id) {	// found a path
-			//~ found = 1;
-			//~ continue;
-		//~ }
+		if(current->id == dst_id) {	// found a path
+			found = 1;
+			continue;
+		}
 		debug_printf("====  current: "); dijkstra_vertex_status_dump(current);
 		if(found && current->min_weight > dst_status->min_weight) {
 			debug_printf("  --> skipped [%u], min_weight=%ld\n", current->id, (long)current->min_weight);
 			continue;
 		}
 		
-		// step 2. get all edges belong to the vertex
+		// step 2. get all edges belong to the current vertex
 		struct clib_slist * vertex_edges = NULL;
 		ssize_t count = edges->get_vertex_sparse_edges(edges, current->id, (const struct clib_slist **)&vertex_edges);
-		if(count <= 0) continue;
-		
 		debug_printf("  -- edges-count=%d\n", (int)count);
-		
+		if(count <= 0) continue;
 		
 		// step 3. update min_weight
 		clib_list_iterator_t iter;
 		memset(&iter, 0, sizeof(iter));
-		_Bool ok = clib_slist_iter_begin(vertex_edges, &iter);
-		while(ok) {
+		//~ _Bool ok = clib_slist_iter_begin(vertex_edges, &iter);
+		clib_slist_iter_clear(vertex_edges);
+		
+		while(clib_slist_iter_next(vertex_edges, &iter)) {
 			struct dijkstra_sparse_edge * edge = clib_list_iterator_get_data(iter);
 			assert(edge);
 			assert(edge->dst_id < edges->num_vertices);
 			vertex = &status_array[edge->dst_id];
+			if(vertex->visited) continue;
 			
-			if(vertex->id == dst_id) found = 1;
-			
-			if(vertex->visited) {
-				ok = clib_slist_iter_next(vertex_edges, &iter);
-				continue;
-			}
-			
+			if(vertex->id == dst_id) found = 1; 
 			int64_t weight = INT64_MAX;
-			
-			
 			if(dijkstra->calc_weight) {
 				weight = current->min_weight + dijkstra->calc_weight(current->amount, edge->user_data);
 			}else {
 				weight = current->min_weight + edge->weight;
 			}
 			if(weight <= vertex->min_weight) {
-				
 				vertex->min_weight = weight;
 				vertex->depth = current->depth + 1;
 				
 				struct clib_pointer_array * parent_candidates = vertex->parent_candidates;
-				
-				if(weight < vertex->min_weight) {
+				if(weight < vertex->min_weight) { // found a new candidate, clear old candidates list
 					clib_pointer_array_set_length(parent_candidates, 1);
-				}else {
+				}else { // found a candidate with the same min_weight
 					clib_pointer_array_set_length(parent_candidates, parent_candidates->length + 1);
 				}
 				parent_candidates->data_ptrs[parent_candidates->length - 1] = current;
 				if(dijkstra->calc_amount) vertex->amount = dijkstra->calc_amount(current->amount, edge->user_data);
+				
+				debug_printf("    \e[32m-- next possible hop: \e[39m"); dijkstra_vertex_status_dump(vertex);
+			}else {
+				debug_printf("    \e[33m-- skipped: \e[39m"); dijkstra_vertex_status_dump(vertex);
 			}
-			debug_printf("    -- next hop: "); dijkstra_vertex_status_dump(vertex);
 			
 			// step 4. push unprocessed vertex into queue
 			if(!vertex->is_processing) {
@@ -433,9 +425,6 @@ ssize_t dijkstra_shortest_path(
 				debug_printf("\e[32m         ==> push [%d]\e[39m\n", (int)vertex->id);
 				queue->enter(queue, vertex);
 			}
-			
-			
-			ok = clib_slist_iter_next(vertex_edges, &iter);
 		}
 		current->visited = 1;
 	}
@@ -451,11 +440,9 @@ ssize_t dijkstra_shortest_path(
 		
 		size_t length = dst_status->depth + 1;
 		clib_pointer_array_set_length(candidates, length);
-		
-		
 		do {
 			debug_printf("[%d] <== ", (int)vertex->id);
-			assert(vertex->depth >= 0 && vertex->depth <= length);
+			assert(vertex->depth >= 0 && vertex->depth < length);
 			
 			candidates->data_ptrs[vertex->depth] = vertex;
 			
@@ -478,7 +465,6 @@ ssize_t dijkstra_shortest_path(
 	}
 	return found?dst_status->min_weight:-1;
 }
-
 
 /************************************
  * dijkstra_context

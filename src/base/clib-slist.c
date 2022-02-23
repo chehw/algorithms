@@ -180,6 +180,12 @@ _Bool clib_slist_iter_begin(struct clib_slist * list, clib_list_iterator_t * p_i
 	return (list->iter.current != NULL);
 }
 
+void clib_slist_iter_clear(struct clib_slist * list)
+{
+	if(NULL == list) return;
+	memset(&list->iter, 0, sizeof(list->iter));
+}
+
 /***************************************
  * clib_sorted_list
 ***************************************/
